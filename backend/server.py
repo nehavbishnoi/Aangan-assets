@@ -146,11 +146,58 @@ class MemberIn(BaseModel):
     parent_ids: List[str] = Field(default_factory=list)
     spouse_ids: List[str] = Field(default_factory=list)
     child_ids: List[str] = Field(default_factory=list)
+    sibling_ids: List[str] = Field(default_factory=list)
+    # extended_relations: free-form, e.g. [{"member_id": "...", "label": "Chachu"}]
+    extended_relations: List[dict] = Field(default_factory=list)
     # visibility — which fields each viewer can see. default: identity public, sensitive private
     public_fields: List[str] = Field(default_factory=lambda: [
         'name', 'photo_url', 'relation_to_head', 'gender', 'date_of_birth', 'anniversary',
-        'parent_ids', 'spouse_ids', 'child_ids',
+        'parent_ids', 'spouse_ids', 'child_ids', 'sibling_ids', 'extended_relations',
     ])
+
+
+class RecipeIn(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+    title: str
+    owner_member_id: Optional[str] = None  # whose recipe
+    occasions: List[str] = Field(default_factory=list)  # "Diwali", "Birthday", "Sunday lunch"
+    cuisine: Optional[str] = None
+    ingredients: List[str] = Field(default_factory=list)
+    steps: List[str] = Field(default_factory=list)
+    story: Optional[str] = None  # why we make it / origin
+    photo_url: Optional[str] = None
+    audio_data_url: Optional[str] = None
+    language: Optional[str] = None
+    is_public: bool = False
+
+
+class CultureIn(BaseModel):
+    """A festivity / tradition / celebration."""
+    model_config = ConfigDict(extra='ignore')
+    title: str  # "Our Diwali Morning"
+    kind: Optional[str] = None  # "festival" | "ritual_of_passage" | "tradition" | "celebration"
+    description: Optional[str] = None  # how we celebrate
+    when_rule: Optional[str] = None  # human-readable, e.g. "First day of Diwali"
+    when_date: Optional[str] = None  # if a fixed date, ISO YYYY-MM-DD (year may be a sentinel)
+    annual: bool = True  # repeats yearly
+    attendee_ids: List[str] = Field(default_factory=list)  # member ids
+    food_recipe_ids: List[str] = Field(default_factory=list)
+    story: Optional[str] = None  # the story behind it
+    photo_url: Optional[str] = None
+    audio_data_url: Optional[str] = None
+    is_public: bool = False
+
+
+class RitualIn(BaseModel):
+    """A daily / weekly / monthly practice."""
+    model_config = ConfigDict(extra='ignore')
+    title: str
+    frequency: Optional[Literal['daily', 'weekly', 'monthly', 'yearly', 'occasional']] = 'daily'
+    description: Optional[str] = None  # the guideline / how it is done
+    follower_ids: List[str] = Field(default_factory=list)  # members who follow it
+    story: Optional[str] = None  # why this matters
+    photo_url: Optional[str] = None
+    is_public: bool = False
 
 
 class StoryIn(BaseModel):
@@ -390,6 +437,11 @@ async def add_member(payload: MemberIn, user: dict = Depends(get_current_user)):
             {'_id': {'$in': payload.child_ids}, 'family_id': user['family_id']},
             {'$addToSet': {'parent_ids': member_id}},
         )
+    if payload.sibling_ids:
+        await db.members.update_many(
+            {'_id': {'$in': payload.sibling_ids}, 'family_id': user['family_id']},
+            {'$addToSet': {'sibling_ids': member_id}},
+        )
     return member_view(doc, user)
 
 
@@ -413,7 +465,8 @@ async def update_member(member_id: str, payload: dict, user: dict = Depends(get_
     allowed = {
         'name', 'photo_url', 'relation_to_head', 'gender', 'date_of_birth', 'place_of_birth',
         'anniversary', 'profession', 'favourite_food', 'languages', 'bio', 'notes',
-        'parent_ids', 'spouse_ids', 'child_ids', 'public_fields',
+        'parent_ids', 'spouse_ids', 'child_ids', 'sibling_ids', 'extended_relations',
+        'public_fields',
     }
     updates = {k: v for k, v in payload.items() if k in allowed}
     if updates:
@@ -435,7 +488,7 @@ async def delete_member(member_id: str, user: dict = Depends(get_current_user)):
     # remove bidirectional refs
     await db.members.update_many(
         {'family_id': user['family_id']},
-        {'$pull': {'parent_ids': member_id, 'spouse_ids': member_id, 'child_ids': member_id}},
+        {'$pull': {'parent_ids': member_id, 'spouse_ids': member_id, 'child_ids': member_id, 'sibling_ids': member_id}},
     )
     # delete stories belonging to this member
     await db.stories.delete_many({'member_id': member_id})
@@ -501,6 +554,172 @@ async def delete_story(story_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail='Not allowed')
     await db.stories.delete_one({'_id': story_id})
     return {'ok': True}
+
+
+# ============================================================================
+# Recipes / Cultures / Rituals — generic helpers
+# ============================================================================
+def _can_see(doc: dict, user: dict) -> bool:
+    if user.get('role') == 'head':
+        return True
+    if doc.get('created_by') == user['_id']:
+        return True
+    return bool(doc.get('is_public'))
+
+
+def _can_edit(doc: dict, user: dict) -> bool:
+    return user.get('role') == 'head' or doc.get('created_by') == user['_id']
+
+
+def _make_entity_routes(name: str, collection: str, model_cls):
+    """Register list/create/get/patch/delete for a simple owned entity."""
+
+    @api_router.get(f'/{name}')
+    async def list_entities(user: dict = Depends(get_current_user)):
+        rows = await db[collection].find({'family_id': user['family_id']}).sort('created_at', -1).to_list(500)
+        return [r for r in rows if _can_see(r, user)]
+
+    @api_router.post(f'/{name}')
+    async def add_entity(payload: model_cls, user: dict = Depends(get_current_user)):
+        doc = payload.model_dump()
+        doc['_id'] = str(uuid.uuid4())
+        doc['family_id'] = user['family_id']
+        doc['created_by'] = user['_id']
+        doc['created_at'] = datetime.now(timezone.utc).isoformat()
+        await db[collection].insert_one(doc)
+        return doc
+
+    @api_router.get(f'/{name}/{{entity_id}}')
+    async def get_entity(entity_id: str, user: dict = Depends(get_current_user)):
+        d = await db[collection].find_one({'_id': entity_id, 'family_id': user['family_id']})
+        if not d or not _can_see(d, user):
+            raise HTTPException(status_code=404, detail='Not found')
+        return d
+
+    @api_router.patch(f'/{name}/{{entity_id}}')
+    async def patch_entity(entity_id: str, payload: dict, user: dict = Depends(get_current_user)):
+        d = await db[collection].find_one({'_id': entity_id, 'family_id': user['family_id']})
+        if not d:
+            raise HTTPException(status_code=404, detail='Not found')
+        if not _can_edit(d, user):
+            raise HTTPException(status_code=403, detail='Only the author or family head can edit this')
+        allowed = set(model_cls.model_fields.keys())
+        updates = {k: v for k, v in payload.items() if k in allowed}
+        if updates:
+            await db[collection].update_one({'_id': entity_id}, {'$set': updates})
+        return await db[collection].find_one({'_id': entity_id})
+
+    @api_router.delete(f'/{name}/{{entity_id}}')
+    async def delete_entity(entity_id: str, user: dict = Depends(get_current_user)):
+        d = await db[collection].find_one({'_id': entity_id, 'family_id': user['family_id']})
+        if not d:
+            raise HTTPException(status_code=404, detail='Not found')
+        if not _can_edit(d, user):
+            raise HTTPException(status_code=403, detail='Not allowed')
+        await db[collection].delete_one({'_id': entity_id})
+        return {'ok': True}
+
+
+_make_entity_routes('recipes', 'recipes', RecipeIn)
+_make_entity_routes('cultures', 'cultures', CultureIn)
+_make_entity_routes('rituals', 'rituals', RitualIn)
+
+
+@api_router.get('/stories/all')
+async def all_stories(user: dict = Depends(get_current_user)):
+    """Aggregate view: member-stories + recipes + cultures + rituals
+    that this user can see, normalised into a single feed."""
+    fid = user['family_id']
+    member_stories = await db.stories.find({'family_id': fid}).to_list(1000)
+    members = {m['_id']: m for m in await db.members.find({'family_id': fid}).to_list(1000)}
+    recipes = await db.recipes.find({'family_id': fid}).to_list(500)
+    cultures = await db.cultures.find({'family_id': fid}).to_list(500)
+    rituals = await db.rituals.find({'family_id': fid}).to_list(500)
+
+    feed = []
+    for s in member_stories:
+        if s.get('is_public') or s.get('created_by') == user['_id'] or user.get('role') == 'head':
+            mem = members.get(s.get('member_id'), {})
+            feed.append({
+                'kind': 'member_story', '_id': s['_id'], 'title': s.get('title'),
+                'content': s.get('content'), 'audio_data_url': s.get('audio_data_url'),
+                'language': s.get('language'), 'is_public': s.get('is_public'),
+                'created_at': s.get('created_at'), 'created_by': s.get('created_by'),
+                'link': f"/app/family/{s.get('member_id')}",
+                'about': mem.get('name'),
+            })
+    for r in recipes:
+        if _can_see(r, user):
+            owner = members.get(r.get('owner_member_id'), {})
+            feed.append({
+                'kind': 'recipe', '_id': r['_id'], 'title': r.get('title'),
+                'content': r.get('story'), 'audio_data_url': r.get('audio_data_url'),
+                'language': r.get('language'), 'is_public': r.get('is_public'),
+                'created_at': r.get('created_at'), 'created_by': r.get('created_by'),
+                'link': f"/app/recipes/{r['_id']}",
+                'about': owner.get('name') or r.get('cuisine') or 'A family recipe',
+                'tag': 'Recipe',
+                'occasions': r.get('occasions'),
+            })
+    for c in cultures:
+        if _can_see(c, user):
+            feed.append({
+                'kind': 'culture', '_id': c['_id'], 'title': c.get('title'),
+                'content': c.get('story') or c.get('description'),
+                'audio_data_url': c.get('audio_data_url'),
+                'is_public': c.get('is_public'),
+                'created_at': c.get('created_at'), 'created_by': c.get('created_by'),
+                'link': f"/app/culture/{c['_id']}",
+                'about': c.get('kind') or 'Tradition',
+                'tag': 'Culture',
+                'when_rule': c.get('when_rule'),
+            })
+    for rt in rituals:
+        if _can_see(rt, user):
+            feed.append({
+                'kind': 'ritual', '_id': rt['_id'], 'title': rt.get('title'),
+                'content': rt.get('story') or rt.get('description'),
+                'is_public': rt.get('is_public'),
+                'created_at': rt.get('created_at'), 'created_by': rt.get('created_by'),
+                'link': f"/app/rituals/{rt['_id']}",
+                'about': rt.get('frequency') or 'Ritual',
+                'tag': 'Ritual',
+            })
+    feed.sort(key=lambda x: x.get('created_at') or '', reverse=True)
+    return feed
+
+
+@api_router.get('/upcoming-events')
+async def upcoming_events(user: dict = Depends(get_current_user), days: int = 90):
+    """Mix of birthdays, anniversaries, and culture events."""
+    fid = user['family_id']
+    members = await db.members.find({'family_id': fid}).to_list(1000)
+    cultures = await db.cultures.find({'family_id': fid, 'annual': True}).to_list(500)
+    today = datetime.now(timezone.utc).date()
+    events = []
+
+    def push(date_iso: str, kind: str, title: str, link: str, member: dict = None):
+        if not date_iso:
+            return
+        try:
+            d = datetime.fromisoformat(date_iso).date()
+        except Exception:  # noqa: BLE001
+            return
+        next_occ = d.replace(year=today.year)
+        if next_occ < today:
+            next_occ = next_occ.replace(year=today.year + 1)
+        diff = (next_occ - today).days
+        if 0 <= diff <= days:
+            events.append({'days': diff, 'date': next_occ.isoformat(), 'kind': kind, 'title': title, 'link': link})
+
+    for m in members:
+        push(m.get('date_of_birth'), 'birthday', f"{m.get('name')}'s birthday", f"/app/family/{m['_id']}")
+        push(m.get('anniversary'), 'anniversary', f"{m.get('name')}'s anniversary", f"/app/family/{m['_id']}")
+    for c in cultures:
+        if _can_see(c, user):
+            push(c.get('when_date'), 'culture', c.get('title'), f"/app/culture/{c['_id']}")
+    events.sort(key=lambda x: x['days'])
+    return events
 
 
 # ============================================================================

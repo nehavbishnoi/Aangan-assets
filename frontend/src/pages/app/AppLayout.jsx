@@ -1,10 +1,14 @@
 import { Link, NavLink, useNavigate, Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
-import { LogOut, Home, Users, MessageCircleHeart, Settings, UserPlus } from 'lucide-react';
+import { LogOut, Home, Users, MessageCircleHeart, Settings, UserPlus, BookHeart, Utensils, Sparkles, Flame } from 'lucide-react';
 
 const navLinks = [
   { to: '/app', icon: Home, label: 'My Aangan', end: true, testid: 'appnav-home' },
   { to: '/app/family', icon: Users, label: 'Family tree', testid: 'appnav-family' },
+  { to: '/app/recipes', icon: Utensils, label: 'Recipes', testid: 'appnav-recipes' },
+  { to: '/app/culture', icon: Sparkles, label: 'Culture', testid: 'appnav-culture' },
+  { to: '/app/rituals', icon: Flame, label: 'Rituals', testid: 'appnav-rituals' },
+  { to: '/app/stories', icon: BookHeart, label: 'Stories', testid: 'appnav-stories' },
   { to: '/app/ask', icon: MessageCircleHeart, label: 'Ask Aangan', testid: 'appnav-ask' },
   { to: '/app/invite', icon: UserPlus, label: 'Invite', testid: 'appnav-invite' },
   { to: '/app/settings', icon: Settings, label: 'Settings', testid: 'appnav-settings' },

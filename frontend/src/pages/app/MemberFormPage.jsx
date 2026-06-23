@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { fetchFamily, addMember, updateMember, getMember } from '@/lib/api';
-import { ArrowLeft, Trash2, ImagePlus } from 'lucide-react';
+import { ArrowLeft, ImagePlus } from 'lucide-react';
 import { toast } from 'sonner';
+import RelationshipsEditor from '@/components/RelationshipsEditor';
+import { RELATION_FLAT } from '@/lib/relations';
 
 const PUBLIC_FIELD_OPTIONS = [
   ['name', 'Name'],
@@ -19,11 +21,7 @@ const PUBLIC_FIELD_OPTIONS = [
   ['notes', 'Personal notes'],
 ];
 
-const RELATION_PRESETS = [
-  'Self', 'Father', 'Mother', 'Spouse', 'Son', 'Daughter', 'Brother', 'Sister',
-  'Grandfather', 'Grandmother', 'Uncle', 'Aunt', 'Cousin', 'Father-in-law', 'Mother-in-law',
-  'Brother-in-law', 'Sister-in-law', 'Son-in-law', 'Daughter-in-law', 'Grandson', 'Granddaughter',
-];
+const RELATION_PRESETS = RELATION_FLAT;
 
 function readAsDataUrl(file) {
   return new Promise((res, rej) => {
@@ -56,7 +54,7 @@ export default function MemberFormPage({ mode = 'create' }) {
     name: '', photo_url: '', relation_to_head: '', gender: '', date_of_birth: '',
     place_of_birth: '', anniversary: '', profession: '', favourite_food: '',
     languages: [], bio: '', notes: '',
-    parent_ids: [], spouse_ids: [], child_ids: [],
+    parent_ids: [], spouse_ids: [], child_ids: [], sibling_ids: [], extended_relations: [],
     public_fields: ['name', 'photo_url', 'relation_to_head', 'gender', 'date_of_birth', 'anniversary'],
   });
   const [familyMembers, setFamilyMembers] = useState([]);
@@ -201,31 +199,22 @@ export default function MemberFormPage({ mode = 'create' }) {
         </section>
 
         <section>
-          <p className="eyebrow mb-5">Relationships</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              ['parent_ids', 'Parents'],
-              ['spouse_ids', 'Spouse(s)'],
-              ['child_ids', 'Children'],
-            ].map(([k, label]) => (
-              <div key={k}>
-                <p className="text-sm text-[hsl(var(--aangan-forest))]/70 mb-2">{label}</p>
-                <div className="max-h-44 overflow-y-auto border border-black/10 p-2 space-y-1">
-                  {familyMembers.length === 0 && <p className="text-[11px] text-[hsl(var(--aangan-forest))]/55 p-1">Add more members first to link them.</p>}
-                  {familyMembers.map((m) => (
-                    <label key={m._id} className="flex items-center gap-2 text-sm py-0.5 cursor-pointer" data-testid={`mf-rel-${k}-${m._id}`}>
-                      <input
-                        type="checkbox"
-                        checked={(data[k] || []).includes(m._id)}
-                        onChange={() => toggleListVal(k, m._id)}
-                      />
-                      <span>{m.name} {m.relation_to_head && <span className="text-[hsl(var(--aangan-forest))]/50">· {m.relation_to_head}</span>}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+          <p className="eyebrow mb-2">Relationships</p>
+          <p className="text-sm text-[hsl(var(--aangan-forest))]/70 mb-5">
+            Connect this person to other members of your family. Add parents, spouse, siblings, children &mdash; or any other relation like Chacha, Chachi, Mama, Bua, Dadi, Nani, cousins, in-laws.
+          </p>
+          <RelationshipsEditor
+            value={{
+              parent_ids: data.parent_ids,
+              spouse_ids: data.spouse_ids,
+              child_ids: data.child_ids,
+              sibling_ids: data.sibling_ids,
+              extended_relations: data.extended_relations,
+            }}
+            onChange={(next) => setData((d) => ({ ...d, ...next }))}
+            others={familyMembers}
+            subjectName={data.name || 'this person'}
+          />
         </section>
 
         <section>

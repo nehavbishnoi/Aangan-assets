@@ -43,6 +43,20 @@ export const listStories = (memberId) => api.get(`/members/${memberId}/stories`)
 export const addStory = (memberId, data) => api.post(`/members/${memberId}/stories`, data).then((r) => r.data);
 export const updateStory = (id, data) => api.patch(`/stories/${id}`, data).then((r) => r.data);
 export const deleteStory = (id) => api.delete(`/stories/${id}`).then((r) => r.data);
+export const allStories = () => api.get('/stories/all').then((r) => r.data);
+export const upcomingEvents = () => api.get('/upcoming-events').then((r) => r.data);
+
+// ---------- Recipes / Cultures / Rituals (uniform CRUD) ----------
+const crud = (resource) => ({
+  list: () => api.get(`/${resource}`).then((r) => r.data),
+  get: (id) => api.get(`/${resource}/${id}`).then((r) => r.data),
+  add: (data) => api.post(`/${resource}`, data).then((r) => r.data),
+  update: (id, data) => api.patch(`/${resource}/${id}`, data).then((r) => r.data),
+  remove: (id) => api.delete(`/${resource}/${id}`).then((r) => r.data),
+});
+export const recipesApi = crud('recipes');
+export const culturesApi = crud('cultures');
+export const ritualsApi = crud('rituals');
 
 // ---------- Whisper transcription ----------
 export const transcribeAudio = async (blob, language) => {

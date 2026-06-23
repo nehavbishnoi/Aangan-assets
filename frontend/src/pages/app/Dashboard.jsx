@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchFamily } from '@/lib/api';
-import { Users, BookHeart, Plus, ArrowRight, Cake } from 'lucide-react';
+import { fetchFamily, upcomingEvents } from '@/lib/api';
+import { Plus, ArrowRight, Cake, CalendarHeart, Sparkles } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 function fmtDate(iso) {
@@ -23,16 +23,16 @@ function daysUntilBirthday(iso) {
 }
 
 export default function Dashboard() {
-  const { user, family } = useAuth();
+  const { family } = useAuth();
   const [data, setData] = useState(null);
+  const [events, setEvents] = useState([]);
 
-  useEffect(() => { fetchFamily().then(setData).catch(() => {}); }, []);
+  useEffect(() => {
+    fetchFamily().then(setData).catch(() => {});
+    upcomingEvents().then(setEvents).catch(() => {});
+  }, []);
 
   const members = data?.members || [];
-  const upcoming = members
-    .map((m) => ({ m, days: daysUntilBirthday(m.date_of_birth) }))
-    .filter((x) => x.days != null && x.days <= 60)
-    .sort((a, b) => a.days - b.days);
 
   return (
     <div data-testid="dashboard" className="max-w-[1100px]">
@@ -46,7 +46,7 @@ export default function Dashboard() {
         {[
           [members.length, 'Members', '/app/family'],
           [members.reduce((a, m) => a + (m.languages?.length || 0), 0), 'Languages'],
-          [upcoming.length, 'Upcoming days'],
+          [events.length, 'Upcoming days'],
           [data?.users?.length || 1, 'Signed in'],
         ].map(([n, l, to], i) => {
           const Tile = to ? Link : 'div';
@@ -96,17 +96,23 @@ export default function Dashboard() {
 
         <aside>
           <h2 className="font-serif text-3xl mb-5">Upcoming days</h2>
-          {upcoming.length === 0 && <p className="text-[hsl(var(--aangan-forest))]/65 text-sm">No birthdays in the next two months.</p>}
+          {events.length === 0 && <p className="text-[hsl(var(--aangan-forest))]/65 text-sm">Add birthdays, anniversaries, or a tradition in <Link to="/app/culture" className="underline">Culture</Link> to see them here.</p>}
           <ul className="space-y-3">
-            {upcoming.slice(0, 6).map(({ m, days }) => (
-              <li key={m._id} className="flex items-center gap-3 p-3 bg-[hsl(var(--aangan-sand))]" data-testid={`dash-birthday-${m._id}`}>
-                <Cake size={16} className="text-[hsl(var(--aangan-marigold))]" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-[hsl(var(--aangan-forest))] truncate">{m.name}&rsquo;s birthday</p>
-                  <p className="text-[11px] text-[hsl(var(--aangan-forest))]/60">{days === 0 ? 'Today' : `${days} day${days === 1 ? '' : 's'} away`}</p>
-                </div>
-              </li>
-            ))}
+            {events.slice(0, 8).map((e, i) => {
+              const Icon = e.kind === 'birthday' ? Cake : e.kind === 'anniversary' ? CalendarHeart : Sparkles;
+              const tint = e.kind === 'birthday' ? 'marigold' : e.kind === 'anniversary' ? 'terracotta' : 'sage';
+              return (
+                <li key={i} data-testid={`dash-event-${i}`}>
+                  <Link to={e.link} className="flex items-center gap-3 p-3 bg-[hsl(var(--aangan-sand))] hover:bg-[hsl(var(--aangan-marigold))]/15">
+                    <Icon size={16} className={`text-[hsl(var(--aangan-${tint}))]`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[hsl(var(--aangan-forest))] truncate">{e.title}</p>
+                      <p className="text-[11px] text-[hsl(var(--aangan-forest))]/60">{e.days === 0 ? 'Today' : `${e.days} day${e.days === 1 ? '' : 's'} away`}</p>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </aside>
       </div>

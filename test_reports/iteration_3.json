@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 3 testing — Recipes/Cultures/Rituals CRUD + privacy, stories aggregator, upcoming-events (birthday math), sibling propagation, extended_relations, member delete cascade. Backend: 22/22 pytest passed in 3s. Frontend: full create flows for all three new entities navigate cleanly to detail; all 9 sidebar testids verified; Stories aggregator shows 3 rows + 5 filter chips (all/member-story/recipe/culture/ritual); Relationships modal picker opens with search/label/confirm testids; 4 of 5 rel-bucket testids found. Two real frontend bugs and a couple of console warnings flagged.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "EntityDetailPage (Recipe/Culture/Ritual)", "issue": "Owner does NOT see the edit/delete buttons on the detail page. Testids `recipes-edit`, `recipes-delete`, `culture-edit`, `culture-delete`, `rituals-edit`, `rituals-delete` were all MISSING for the freshly-signed-up family head viewing their own just-created entity. Spec said these must be visible to owner+head. Detail page URL loaded successfully (e.g. /app/recipes/{uuid}); the buttons just never render. Likely the `can.edit` check in EntityDetailPage is false-y — verify it reads `doc.created_by === user._id || user.role==='head'` and that `created_by` is in the GET /api/{kind}/{id} response (it is, per backend test_create_recipe).", "selector": "[data-testid='recipes-edit']", "priority": "HIGH"},
+      {"component": "RelationshipsEditor.jsx", "issue": "The Extended Relations row (\"OTHER RELATIONS\") is rendered outside the main bucket loop (line 86) so it lacks the wrapper `data-testid=\"rel-bucket-extended_relations\"`. The Add button `rel-add-extended_relations` works and the picker opens correctly (search+label+confirm testids all present), but the bucket wrapper testid promised in the spec is missing. Wrap the section in `<div data-testid=\"rel-bucket-extended_relations\">...</div>`.", "selector": "[data-testid='rel-bucket-extended_relations']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MemberFormPage / MemberPicker (EntityPages.jsx:88)", "issues": ["React hydration warning: a <span> wraps the placeholder text inside an <option> element. Browsers strip <span> inside <option> — keep option content as plain text (e.g. `<option value=\"\">{placeholder}</option>`).", "Duplicate-key warning on /app/family/new — six occurrences of 'Encountered two children with the same key'. Likely the RELATION_GROUPS label dropdown or extended_relations list uses non-unique keys (probably label string used as key twice across groups). Use a composite key like `${group}-${label}-${idx}`."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_aangan_iteration3.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix EntityDetailPage so owner/head sees `{kind}-edit` and `{kind}-delete` buttons (recipes/culture/rituals). Verify the GET /api/{kind}/{id} response includes `created_by` and the React check matches user._id correctly.",
+    "Add data-testid='rel-bucket-extended_relations' wrapper around the Extended Relations section in RelationshipsEditor.jsx (~line 80).",
+    "Remove the <span> child inside the placeholder <option> in MemberPicker (EntityPages.jsx:88) to clear the React hydration warning.",
+    "Fix duplicate-key warning on MemberFormPage by composite-keying the relations rendering."
+  ],
+  "critical_code_review_comments": [
+    "server.py:574 _make_entity_routes registers nested closure-defined routes inside a single function — fine, but the route function names ALL collide (every call to _make_entity_routes defines `list_entities`, `add_entity`, etc.). FastAPI uses the function name as operation_id, so OpenAPI/docs will show duplicate or last-write-wins operation IDs. Pass unique names via @api_router.get(name=...) or rename inside.",
+    "server.py:600 patch_entity uses raw `payload: dict` (same untyped pattern flagged in iteration 2 for update_member). Define `RecipePatch/CulturePatch/RitualPatch` so PATCH benefits from same validation as POST.",
+    "server.py:692 upcoming_events: `datetime.fromisoformat(date_iso).date()` will silently swallow ANY bad date with the bare except — log it. Also `next_occ = d.replace(year=today.year)` breaks for Feb-29 birthdays in non-leap years (ValueError). Wrap with try/except and fall back to Feb-28.",
+    "server.py:628 /stories/all: leaks `created_by` user-IDs into the response (already noted in iteration 2). For non-public rows visible to head only, this is fine, but public-feed rows shouldn't expose author user IDs.",
+    "server.py:574 _make_entity_routes: no global rate limiting or pagination — `.to_list(500)` is fine for now but will break at scale.",
+    "EntityPages.jsx:88 MemberPicker — `<option><span>{placeholder}</span></option>` causes hydration warning (see frontend bug)."
+  ],
+  "updated_files": ["/app/backend/tests/test_aangan_iteration3.py (new — 22 tests)"],
+  "success_rate": {"backend": "100% (22/22 pytest in 3s)", "frontend": "~88% — 9/9 sidebar testids OK, 3/3 entity create flows OK (recipe+culture+ritual save & navigate), 5/5 stories chips + 3 rows OK, picker testids OK, but 6/6 entity edit/delete buttons missing and 1/5 rel-bucket missing"},
+  "test_credentials": "Tests sign up fresh users each run: it3_head_{stamp}@aangan.io / secret123 for backend; ui3e_{stamp}@aangan.io / secret123 for frontend. No pre-seeded creds.",
+  "seed_data_creation": "Backend test creates: 1 head family + 1 invited member, ~3 recipes (1 public, 1 private, 1 temp-deleted), 1 public culture, 1 ritual, ~5 members (TEST_StoryGuy, TEST_BdayKid, TEST_SibA[deleted], TEST_SibB, TEST_Nephew), 1 public member_story. All TEST_ prefixed.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend new tests live at /app/backend/tests/test_aangan_iteration3.py (22 tests). Run alongside the iteration-2 file: `pytest /app/backend/tests/ -v`. The signup form has NO `name` attributes on inputs and NO `button[type=submit]` — select inputs by index from `form input` and the submit by role/name 'Create my family Aangan'. Entity create→detail navigation works but the detail page is missing owner edit/delete buttons — verify if fixed by checking [data-testid='recipes-edit']. Stories aggregator chips are `stories-tab-all`, `stories-tab-member-story`, `stories-tab-recipe`, `stories-tab-culture`, `stories-tab-ritual`. Dashboard `dash-event-*` count was 0 in our quick run because the test user didn't add a member with date_of_birth — to verify upcoming-events on the UI, first POST a member with date_of_birth=tomorrow then reload /app. Backend /api/upcoming-events math (birthday-tomorrow→days=1) is verified working.",
+  "rca of the issue": "Owner edit/delete invisible: most likely cause is EntityDetailPage's permission gate (`can.edit`) comparing `doc.created_by` to `user._id` where one side is undefined during the initial render (user from context not yet loaded OR doc not yet fetched). The detail URL navigated correctly, so the doc fetch succeeded; we did a `page.wait_for_function` on URL change but didn't wait for the doc-loaded state. However a second screenshot at relationship editor (taken seconds later, fully loaded) STILL showed the issue. Worth checking that backend GET /api/recipes/{id} returns `created_by` field — confirmed yes in test_create_recipe assertion. So bug is in the frontend comparison logic."
+}
