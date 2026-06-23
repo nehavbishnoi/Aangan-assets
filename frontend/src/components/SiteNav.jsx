@@ -1,6 +1,7 @@
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
 
 const links = [
   { to: '/', label: 'Home' },
@@ -15,6 +16,7 @@ export default function SiteNav() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const { user } = useAuth() || {};
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -60,13 +62,23 @@ export default function SiteNav() {
         </nav>
 
         <Link
-          to="/early-access"
+          to={user ? '/app' : '/app/signup'}
           data-testid="nav-cta-begin-archive"
           className="hidden lg:inline-flex items-center gap-2 px-5 py-2.5 bg-[hsl(var(--aangan-forest))] text-[hsl(var(--aangan-ivory))] text-[13px] tracking-wide hover:bg-[hsl(var(--aangan-charcoal))] transition-colors duration-300"
         >
-          Begin Your Archive
+          {user ? 'Open my Aangan' : 'Begin Your Archive'}
           <span className="opacity-70">→</span>
         </Link>
+
+        {!user && (
+          <Link
+            to="/app/login"
+            data-testid="nav-signin"
+            className="hidden lg:inline-flex items-center text-[13px] text-[hsl(var(--aangan-forest))]/70 hover:text-[hsl(var(--aangan-forest))] mr-1"
+          >
+            Sign in
+          </Link>
+        )}
 
         <button
           data-testid="nav-mobile-toggle"

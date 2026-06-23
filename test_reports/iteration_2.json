@@ -1,0 +1,33 @@
+{
+  "summary": "Full E2E pass on the new /app real-app build. Backend pytest: 23/23 passed (auth signup/login/me, members CRUD with cascade + bidirectional relations + head-self-delete guard, invite + accept-invite + token-reuse 404, privacy filtering for non-head viewer, stories private/public toggle + visibility, /api/ask/stream SSE authenticated + 401 unauth, /api/transcribe auth + 422 empty + valid wav). Frontend Playwright: signup → /app dashboard, member add → detail (no React runtime error), tree shows both members, invite generate + WhatsApp href correct, accept-invite as 2nd user lands on /app, member edit + non-head delete, head's own profile cannot be deleted (delete button hidden), voice recorder UI renders (voice-start visible), Ask Aangan streams Claude responses (~2s to first content), marketing nav shows correct CTAs signed-in vs signed-out.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_aangan_realapp.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:212 — signup endpoint blocks at module-level email index but seeds family/user/member as 3 separate inserts without a transaction; a crash between inserts would leave an orphan family. Wrap in a session.with_transaction or rollback on failure.",
+    "server.py:404 update_member uses `payload: dict` (raw, untyped) — bypasses Pydantic validation. Consider a MemberPatch model with all-optional fields so e.g. gender Literal is enforced on PATCH too (currently only enforced on POST via MemberIn).",
+    "server.py:455 list_stories returns raw Mongo docs without removing `_id` substitution — works because uuids are used as _id, but story.created_by is leaked even to non-head viewers when is_public=True. Consider adding a story_view() like member_view().",
+    "server.py:606 SSE encoding escapes \\n as literal `\\n` requiring the client to un-escape (`/lib/api.js:90`). This is non-standard SSE; better: write `data: <line>\\n` per source line then a blank line per event so newlines are preserved naturally and any future SSE consumer works.",
+    "server.py:660 CORS_ORIGINS defaults to '*' AND allow_credentials=True — browsers reject credentialed requests with wildcard origins. Works only because frontend and backend share origin in this ingress setup; will silently break in true cross-origin deploy. Document this.",
+    "server.py:667 @app.on_event is deprecated — migrate to FastAPI lifespan.",
+    "MemberFormPage.jsx:55 — local empty-string→strip happens at submit, but date inputs of '' could still leak into PATCH; verify by sending PATCH with empty date_of_birth from edit form (Pydantic Literal on gender already proved to be a trap).",
+    "AskAanganApp.jsx + api.js:90 — askAanganStream's onError appends `(Aangan is quiet — ...)` only if accumulated text is empty; if a partial reply was streamed and then errored, the user gets no error feedback. Minor UX.",
+    "No rate limiting on /api/ask/stream — authenticated users can drain LLM quota."
+  ],
+  "updated_files": ["/app/backend/tests/test_aangan_realapp.py (new)"],
+  "success_rate": {"backend": "100% (23/23 pytest)", "frontend": "100% on all 13 requested flows"},
+  "test_credentials": "Tests create their own users via signup with random emails (ui*_{stamp}@aangan.io / secret123). No pre-seeded credentials needed.",
+  "seed_data_creation": "Each test run signs up a fresh family head and creates TEST_ / UI_ prefixed members; invites are single-use and consumed by the test. ~5-6 families left in DB across iterations; cleanup script can target email LIKE 'ui%_%@aangan.io' OR family_name LIKE 'TEST_%' / 'UI%'.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Auth uses httpOnly cookies — for `requests`, use a Session() and POST /api/auth/signup or /api/auth/login first; subsequent calls reuse cookies automatically. Emails are lowercased server-side, so do NOT use uppercase TEST_ in email local-part. Ask Aangan testids are ask-app-input / ask-app-send / ask-app-msg-{i} (not ask-input). Marketing CTA 'Begin Your Archive' points to /app/signup signed-out; 'Open my Aangan' points to /app signed-in. VoiceRecorder testids: voice-start, voice-stop, voice-language, voice-playback, voice-transcribe, voice-discard. Invite token in path: /app/accept-invite/{token}. Backend test file: /app/backend/tests/test_aangan_realapp.py (23 tests, ~14s).",
+  "rca of the issue": "N/A — no functional bugs found. The previously fixed MemberFormPage empty-string strip is verified working (no Pydantic Literal error on gender='')."
+}
