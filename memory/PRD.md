@@ -1,65 +1,91 @@
 # Aangan — Product Requirements (PRD)
 
 ## Original problem statement
-Build a premium, emotionally warm, editorial landing page for **Aangan** — a private AI-powered
-family culture and legacy platform. Aangan preserves family stories, traditions, recipes, rituals,
-values, languages, celebrations, voice notes, photos, and memories across generations.
-
-Positioning: "Aangan — The living archive of your family culture."
-
-The site should feel like a luxury family-memoir brand or editorial magazine, not a SaaS landing
-page. Warm ivory background, deep forest-green text, muted terracotta/marigold/sage accents,
-elegant serif headlines (Cormorant Garamond) + clean sans-serif body (Outfit), candid
-multigenerational photography, and a lot of breathing space.
-
-Non-religious. Non-genealogical. Non-social-media. Non-photo-album. A private, beautiful digital
-home for a family's living culture.
+Aangan is a private, AI-powered family culture and legacy platform. Initial scope was a premium
+landing page; subsequent scope was expanded into a real working app where a family head signs up,
+adds family members in any order, sees an auto-organising generation-based family tree, clicks any
+member to read their story, and records voice notes in any Indian language that are transcribed
+to text. Marketing site kept at `/`. Real app at `/app/*`.
 
 ## User personas
-1. **Adult children of ageing parents** — want to record grandparents' stories before it's too late.
-2. **Diaspora families / NRI** — want to keep a home language and home traditions alive abroad.
-3. **New parents** — want to start a memory archive for their child.
-4. **Interfaith / inter-regional couples** — want both cultures honoured side by side.
-5. **Families preparing for weddings / milestones** — want a legacy book.
+1. **Family head** — sign up, build the archive, invite the family.
+2. **Family member** — joins via invite link, owns their own private details.
+3. **Family viewer** — sees only what other members chose to make public.
 
-## Core requirements (static)
-- Editorial landing page with all 9 brand sections (hero → final CTA waitlist).
-- Six clickable product mockup screens:
-  Family Tradition Card (Our Diwali Morning), Voice-note → story transformation, Family Calendar,
-  Ask Aangan (live AI), Recipe Card (Besan Ladoo), My Aangan dashboard.
-- Working waitlist saved to MongoDB.
-- Ask Aangan as a *live* streaming AI conversation, citing the family's archive first.
-- Warm ivory + forest green palette, no saffron-heavy / religious / corporate-SaaS visuals.
-- Premium typography (Cormorant Garamond + Outfit + Caveat hand-script).
-- `data-testid` on every interactive and key informational element.
+## Stack
+- Backend: FastAPI + MongoDB + JWT auth via httpOnly cookies + bcrypt.
+- AI: Claude Sonnet 4.5 (text), OpenAI Whisper (speech-to-text), Gemini Nano Banana (imagery) —
+  all via `EMERGENT_LLM_KEY` and `emergentintegrations`.
+- Frontend: React (CRA), Tailwind, shadcn, sonner, lucide-react.
 
-## Implemented (Dec 2025)
-- Backend
-  - `POST/GET /api/waitlist` — idempotent waitlist on email.
-  - `POST /api/ask` and `POST /api/ask/stream` — Claude Sonnet 4.5 via `emergentintegrations`,
-    using `EMERGENT_LLM_KEY` and an Ask Aangan system prompt that grounds answers in a
-    sample (Sharma family, Jaipur) archive.
-- Frontend (React + Tailwind + shadcn + sonner)
-  - Routes: `/`, `/how-it-works`, `/for-families`, `/privacy`, `/early-access`, `/archive`,
-    `/archive/tradition/:slug`, `/archive/voice-story`, `/archive/calendar`,
-    `/archive/recipe/:slug`, `/archive/ask-aangan`.
-  - Landing page with hero (floating Family Tradition Card mockup over a family photograph),
-    problem section, five-questions, three-step product experience, asymmetric feature
-    showcase, AI section, privacy section, emotional use-cases, final CTA + waitlist form.
-  - Six clickable mockup pages (Tradition / Voice story / Calendar / Recipe / Ask Aangan / My Aangan).
-  - Editorial palette via CSS variables, paper-grain SVG noise overlay, Cormorant Garamond +
-    Outfit + Caveat fonts, soft float + audio-waveform animations, no harsh gradients.
-  - `data-testid` on every interactive element.
+## What's implemented (Dec 2025)
+### Backend (`/app/backend/server.py`)
+- Auth: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`,
+  `GET /api/auth/me`, `POST /api/auth/invite`, `GET /api/auth/invite/{token}`,
+  `POST /api/auth/accept-invite`. JWT in httpOnly cookie; bcrypt password hashing.
+- Family + members: `GET /api/family`, `POST/GET/PATCH/DELETE /api/members[…]`. Privacy filtering
+  via `member_view()` — head sees all; member-owners see their own private fields; everyone else
+  sees only the fields each member listed in `public_fields`. Bidirectional relation cleanup on
+  link/unlink/delete.
+- Stories: `GET/POST /api/members/{id}/stories`, `PATCH/DELETE /api/stories/{id}`. Per-story
+  `is_public` toggle; head sees all; member-owners see their own private stories.
+- Whisper: `POST /api/transcribe` (multipart `file`, optional `language`) returns
+  `{text, language, duration}`. Supports all Indian languages + English (auto-detect).
+- Ask Aangan: `POST /api/ask/stream` (auth, SSE) answers from the user's actual family archive.
+  `POST /api/ask-demo` (no auth) for the marketing demo.
+- Waitlist (kept from MVP): `POST/GET /api/waitlist`.
+- MongoDB indexes on startup: `users.email` (unique), `members.family_id`, `stories.family_id`,
+  `stories.member_id`, `invites.family_id`.
+
+### Frontend (`/app/frontend/src`)
+- Marketing kept intact: `/`, `/how-it-works`, `/for-families`, `/privacy`, `/early-access`,
+  `/archive/*` (six clickable mockup pages from the original MVP).
+- Auth pages (no app chrome): `/app/signup`, `/app/login`, `/app/accept-invite/:token`.
+- Real product (sidebar layout, gated by auth):
+  - `/app` — My Aangan dashboard (member count, upcoming birthdays, recent members).
+  - `/app/family` — generation-aware family tree (parents → you → children → grandchildren),
+    spouse clusters with heart link; click any node to open the member.
+  - `/app/family/new` — add a member with name, photo upload (data URL ≤ 2MB), relation, gender,
+    DOB, place of birth, anniversary, profession, favourite food, languages (tag input), bio,
+    notes, parents/spouse/children links, and per-field public-visibility checkboxes.
+  - `/app/family/:id` — member detail with stats, relatives, personal notes (private), and a
+    story list. Story composer supports text + in-browser voice recording (MediaRecorder WebM)
+    → `/api/transcribe` (Whisper) → auto-fill content with detected-language label. Toggle a
+    story public/private per-story; delete story; edit member.
+  - `/app/family/:id/edit` — same form, edit mode (only owner + head).
+  - `/app/invite` — head-only; generate a private one-shot invite link with WhatsApp / Email /
+    Copy actions.
+  - `/app/ask` — live Ask Aangan grounded in this family's actual members + stories.
+  - `/app/settings` — account info + privacy explanation.
+- `SiteNav` is auth-aware: signed-out shows "Sign in" + "Begin Your Archive" → /app/signup;
+  signed-in shows "Open my Aangan" → /app.
+- Generation-aware tree algorithm: BFS from family head; spouses share generation, children
+  gen+1, parents gen-1. Grouped into rows labelled Grandparents / Parents & aunts-uncles /
+  You and your generation / Children / Grandchildren.
+
+### Imagery (marketing)
+- All 12 marketing images AI-generated via Gemini Nano Banana with universal-Indian / pan-regional
+  prompts (no sarees, sherwanis, turbans, bindis, tilak, regional jewellery, temple imagery,
+  saffron-heavy colour, or festival decoration). Wardrobe palette: ivory, sage, beige.
+
+## Privacy model
+- Each member has `owner_user_id`, `public_fields[]`, and stories with `is_public`.
+- The family head is a quiet super-viewer (sees everything).
+- Other family members see: identity (name/photo/relation/DOB by default) + whatever each member
+  added to their `public_fields`. Sensitive defaults are private (bio, notes, profession,
+  favourite_food, languages, place_of_birth).
+- Stories default to private; the author or head can flip the toggle.
+
+## Test status
+- iteration_1 (marketing only): 100% backend, 100% frontend.
+- iteration_2 (real app): 100% backend (23/23 pytest), 100% frontend (13/13 flows). No critical
+  bugs found.
 
 ## Backlog
-- **P0** — (none, MVP is complete)
-- **P1**
-  - Pre-generate hero & feature imagery via Gemini Nano Banana for full aesthetic control
-    (currently uses curated Pexels imagery).
-  - Admin view at `/admin/waitlist` (gated) to review signups.
-  - Voice-note recording flow that actually transcribes via Whisper.
-- **P2**
-  - "Invite a family member" flow with shareable invite links.
-  - Multi-language UI (Hindi, Tamil, Punjabi to start).
-  - A Family Calendar that imports from Google Calendar.
-  - PDF export of a Family Tradition Card / Recipe Card as a printed legacy book.
+- **P1** — Migrate `@app.on_event` → FastAPI `lifespan`; add MemberPatch model so PATCH enforces
+  Literal validation; add `story_view()` to filter `created_by` for public stories from other
+  authors; rate-limit `/api/ask/stream`; document CORS for true cross-origin deploys.
+- **P2** — Real photo/audio object storage (currently inline data URLs in Mongo, fine for small
+  scale, won't scale); Google Calendar import; PDF "legacy book" export of a tradition card or
+  recipe; multi-language UI labels (Hindi, Tamil…); push notifications for upcoming birthdays;
+  shared family events ("Diwali 2026, who's coming?"); 2FA for the family head.
